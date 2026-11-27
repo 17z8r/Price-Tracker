@@ -19,6 +19,9 @@ Every run adds a row per product to [`prices.csv`](prices.csv):
 
 ![Price history CSV](docs/prices-csv.png)
 
+And also appears on [`index.html`](index.html):
+![Price history example](docs/prices-csv-html.png)
+
 Because each row is timestamped, the file doubles as a price history you can open in Excel or Google Sheets, or chart over time.
 
 ## How it works
