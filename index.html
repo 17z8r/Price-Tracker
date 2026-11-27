@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Price history</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F1F4F7; --panel: #FFFFFF; --ink: #13202C; --muted: #5B6B7A; --rule: #D5DDE5;
+    --c1: #2459D6; --c2: #D13F7A; --c3: #13876B; --c4: #B8741A; --c5: #6B4FD1;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0D1520; --panel: #142030; --ink: #E7EEF5; --muted: #93A4B5; --rule: #243546;
+      --c1: #6C9BFF; --c2: #FF7FAE; --c3: #3FD0A6; --c4: #F0B25A; --c5: #A793FF;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.5;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 40px 20px 64px; }
+  h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; margin: 0 0 8px; }
+  #summary { color: var(--muted); margin: 0 0 28px; }
+  .chart-wrap { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 16px; height: 360px; }
+  .table-wrap { overflow-x: auto; margin-top: 24px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 12px 8px; border-bottom: 1px solid var(--rule); text-align: right; }
+  th:first-child, td:first-child { text-align: left; padding-left: 0; }
+  th { font-weight: 500; color: var(--muted); font-size: 0.9rem; }
+  td { font-weight: 500; }
+  .name {
+    display: flex; align-items: center; gap: 10px; background: none; border: 0; padding: 0;
+    font: inherit; font-weight: 600; color: inherit; text-align: left; cursor: pointer;
+  }
+  .name:focus-visible { outline: 2px solid var(--c1); outline-offset: 4px; border-radius: 4px; }
+  .sw { flex: none; width: 18px; height: 6px; border-radius: 3px; background: var(--sw); border: 2px solid var(--sw); }
+  tr.off .name { opacity: 0.5; }
+  tr.off .sw { background: transparent; }
+  .down { color: var(--c3); }
+  .up { color: var(--c2); }
+  .flat { color: var(--muted); }
+  #message { display: none; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 20px; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Price history</h1>
+  <p id="summary">Loading prices…</p>
+  <div id="message" role="alert"></div>
+  <div id="content" hidden>
+    <div class="chart-wrap"><canvas id="chart" aria-label="Line chart of product prices over time" role="img"></canvas></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Product (click to show or hide)</th><th>Now</th><th>Since first check</th><th>Lowest</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+  const CSV_URL = "prices.csv";   // if the page ever shows stale data, use your repo's raw.githubusercontent.com URL for prices.csv
+  const CURRENCY = "£";
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  const $ = id => document.getElementById(id);
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const money = n => CURRENCY + n.toFixed(2);
+  const signed = n => (n > 0 ? "+" : "−") + money(Math.abs(n));
+  const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const label = ts => {
+    const [date, time] = ts.split("T");
+    const [, m, d] = date.split("-");
+    return `${MONTHS[+m - 1]} ${+d}, ${time.slice(0, 5)}`;
+  };
+
+  // Small CSV parser that handles quoted fields (product titles can contain commas)
+  function parseCSV(text) {
+    const rows = []; let row = [], cell = "", quoted = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (quoted) {
+        if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else quoted = false; }
+        else cell += c;
+      } else if (c === '"') quoted = true;
+      else if (c === ",") { row.push(cell); cell = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(cell); cell = "";
+        if (row.length > 1 || row[0] !== "") rows.push(row);
+        row = [];
+      } else cell += c;
+    }
+    if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+
+  function showMessage(html) {
+    $("summary").textContent = "";
+    $("message").innerHTML = html;
+    $("message").style.display = "block";
+  }
+
+  async function load() {
+    try {
+      const res = await fetch(CSV_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const rows = parseCSV(await res.text());
+      const head = rows.shift().map(h => h.trim());
+      const data = rows
+        .map(r => Object.fromEntries(head.map((h, i) => [h, r[i]])))
+        .filter(r => r.timestamp && r.price);
+      if (!data.length) return showMessage("<code>prices.csv</code> has no rows yet. Run the tracker once to add some.");
+      render(data);
+    } catch (err) {
+      showMessage("Couldn’t load <code>prices.csv</code>. If you opened this file directly, start a local server with <code>python -m http.server</code> in this folder, then visit <code>http://localhost:8000</code>.");
+    }
+  }
+
+  let chart;
+
+  function render(data) {
+    const stamps = [...new Set(data.map(r => r.timestamp))].sort();
+    const byUrl = new Map();
+    data.forEach(r => {
+      if (!byUrl.has(r.url)) byUrl.set(r.url, { name: r.product, points: new Map() });
+      byUrl.get(r.url).points.set(r.timestamp, parseFloat(r.price));
+    });
+    const products = [...byUrl.values()];
+
+    $("summary").textContent =
+      `Tracking ${products.length} product${products.length === 1 ? "" : "s"}. Last check ${label(stamps.at(-1))}.`;
+    $("content").hidden = false;
+
+    const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    chart = new Chart($("chart"), {
+      type: "line",
+      data: {
+        labels: stamps.map(label),
+        datasets: products.map(p => ({
+          label: p.name,
+          data: stamps.map(s => p.points.get(s) ?? null),
+          stepped: "after",
+          spanGaps: true,
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+        })),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: reduceMotion ? false : { duration: 500 },
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${money(ctx.parsed.y)}` } },
+        },
+        scales: {
+          x: { grid: { display: false } },
+          y: { ticks: { callback: v => money(v) } },
+        },
+      },
+    });
+    applyTheme();
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+
+    $("rows").innerHTML = products.map((p, i) => {
+      const vals = [...p.points.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(e => e[1]);
+      const diff = vals.at(-1) - vals[0];
+      const change = diff === 0
+        ? '<span class="flat">No change</span>'
+        : `<span class="${diff < 0 ? "down" : "up"}">${signed(diff)}</span>`;
+      return `<tr>
+        <td><button class="name" data-i="${i}" aria-pressed="true"><span class="sw" style="--sw: var(--c${i % 5 + 1})"></span>${esc(p.name)}</button></td>
+        <td>${money(vals.at(-1))}</td>
+        <td>${change}</td>
+        <td>${money(Math.min(...vals))}</td>
+      </tr>`;
+    }).join("");
+
+    $("rows").addEventListener("click", e => {
+      const btn = e.target.closest("button.name");
+      if (!btn) return;
+      const i = +btn.dataset.i;
+      const show = !chart.isDatasetVisible(i);
+      chart.setDatasetVisibility(i, show);
+      btn.setAttribute("aria-pressed", show);
+      btn.closest("tr").classList.toggle("off", !show);
+      chart.update();
+    });
+  }
+
+  // Chart.js draws on a canvas, so it can't read CSS variables directly; copy them over
+  function applyTheme() {
+    if (!chart) return;
+    chart.data.datasets.forEach((ds, i) => {
+      const color = css(`--c${i % 5 + 1}`);
+      ds.borderColor = color;
+      ds.backgroundColor = color;
+    });
+    const o = chart.options.scales;
+    o.x.ticks = { color: css("--muted"), maxRotation: 0, autoSkip: true };
+    o.y.ticks = { ...o.y.ticks, color: css("--muted") };
+    o.y.grid = { color: css("--rule") };
+    chart.update();
+  }
+
+  load();
+</script>
+</body>
+</html>
