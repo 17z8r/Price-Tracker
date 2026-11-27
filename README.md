@@ -39,7 +39,7 @@ Because each row is timestamped, the file doubles as a price history you can ope
 **Requirements:** Python 3.14 (earlier recent versions should also work).
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/Price-Tracker.git
+git clone https://github.com/17z8r/Price-Tracker.git
 cd Price-Tracker
 pip install -r requirements.txt
 python tracker.py
