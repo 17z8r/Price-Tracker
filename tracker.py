@@ -52,7 +52,7 @@ with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
 
         old_price = last_prices.get(url)
         if old_price is not None and price < old_price:
-            send_alert(f"Price drop, <@726568795992358973>! {title}: {old_price} -> {price}\n{url}")
+            send_alert(f"Price drop! {title}: {old_price} -> {price}\n{url}")
 
         writer.writerow([datetime.now().isoformat(timespec="seconds"), title, price, url])
         print(f"Saved: {title} - {price}")
