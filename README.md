@@ -1,5 +1,7 @@
 # Price Tracker
 
+Live Chart: https://17z8r.github.io/Price-Tracker
+
 Tracks product prices every day and sends a Discord alert the moment one drops. No manual checking, no spreadsheets to update.
 
 ![Discord price drop alert](docs/discord-alert.png)
@@ -19,7 +21,7 @@ Every run adds a row per product to [`prices.csv`](prices.csv):
 
 ![Price history CSV](docs/prices-csv.png)
 
-And also appears on [`index.html`](index.html):
+And also appears on [`index.html`](index.html) (DEMO DATA):
 ![Price history example](docs/prices-csv-html.png)
 
 Because each row is timestamped, the file doubles as a price history you can open in Excel or Google Sheets, or chart over time.
